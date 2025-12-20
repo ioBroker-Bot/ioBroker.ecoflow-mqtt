@@ -18,6 +18,7 @@ const mqtt = require('mqtt');
 let recon_timer = null;
 let lastQuotInterval = null;
 let haLoadInterval = null;
+let msgCalcInterval = null;
 
 const version = require('./io-package.json').common.version;
 
@@ -53,6 +54,8 @@ class EcoflowMqtt extends utils.Adapter {
         this.haDevices = null;
         this.haCounter = 0;
         this.haCountMem = 0;
+        this.efCounter = 0;
+        this.efCountMem = 0;
         this.onlineDevices = [];
 
         this.on('ready', this.onReady.bind(this));
@@ -669,17 +672,20 @@ class EcoflowMqtt extends utils.Adapter {
                         this.log.debug('EF no topics for subscription');
                     }
                     this.setState('info.connection', true, true);
+                    //avg load of receiving telegrams from EF cloud
+                    msgCalcInterval = this.setInterval(() => {
+                        const msgcnt = this.efCounter - this.efCountMem;
+                        this.efCountMem = this.efCounter;
+                        this.setState('info.efConnAvgLoad', { val: msgcnt, ack: true });
+                    }, 10 * 1000);
                 });
 
                 this.client.on('message', async (topic, message) => {
-                    // message is Buffer
-                    // this.log.debug(topic + ' got ' + message.toString());
-
                     const msgtop = ef.getIdFromTopic(topic, this.mqttUserId);
                     const msgtype = msgtop.msg;
                     //this topic only contains the id of device
                     topic = msgtop.topic;
-
+                    this.efCounter++;
                     let devtype = '';
                     let logged = false;
                     let devicelogged = false;
@@ -1301,11 +1307,15 @@ class EcoflowMqtt extends utils.Adapter {
             }
             if (lastQuotInterval) {
                 this.clearInterval(lastQuotInterval);
-                this.log.debug('lastQuotInterval  interval stopped');
+                this.log.debug('lastQuotInterval interval stopped');
             }
             if (haLoadInterval) {
                 clearInterval(haLoadInterval);
-                this.log.debug('haConnAvgLoad  interval stopped');
+                this.log.debug('haConnAvgLoad interval stopped');
+            }
+            if (msgCalcInterval) {
+                clearInterval(msgCalcInterval);
+                this.log.debug('msgCalc interval stopped');
             }
             if (this.haClient && this.haDevices) {
                 // await ha.publishAsync(this, this.config.haTopic + '/iob/info/status', 'offline', 1);
